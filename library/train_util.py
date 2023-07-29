@@ -163,9 +163,7 @@ class BucketManager:
         if not self.no_upscale:
             # 同じaspect ratioがあるかもしれないので（fine tuningで、no_upscale=Trueで前処理した場合）、解像度が同じものを優先する
             reso = (image_width, image_height)
-            if reso in self.predefined_resos_set:
-                pass
-            else:
+            if reso not in self.predefined_resos_set:
                 ar_errors = self.predefined_aspect_ratios - aspect_ratio
                 predefined_bucket_id = np.abs(ar_errors).argmin()  # 当該解像度以外でaspect ratio errorが最も少ないもの
                 reso = self.predefined_resos[predefined_bucket_id]
@@ -177,7 +175,7 @@ class BucketManager:
                 scale = reso[0] / image_width
 
             resized_size = (int(image_width * scale + 0.5), int(image_height * scale + 0.5))
-            # print("use predef", image_width, image_height, reso, resized_size)
+                # print("use predef", image_width, image_height, reso, resized_size)
         else:
             if image_width * image_height > self.max_area:
                 # 画像が大きすぎるのでアスペクト比を保ったまま縮小することを前提にbucketを決める
@@ -445,7 +443,7 @@ class BaseDataset(torch.utils.data.Dataset):
         self.seed = seed
 
     def set_current_epoch(self, epoch):
-        if not self.current_epoch == epoch:  # epochが切り替わったらバケツをシャッフルする
+        if self.current_epoch != epoch:  # epochが切り替わったらバケツをシャッフルする
             self.shuffle_buckets()
         self.current_epoch = epoch
 
@@ -460,8 +458,7 @@ class BaseDataset(torch.utils.data.Dataset):
         self.tag_frequency[dir_name] = frequency_for_dir
         for caption in captions:
             for tag in caption.split(","):
-                tag = tag.strip()
-                if tag:
+                if tag := tag.strip():
                     tag = tag.lower()
                     frequency = frequency_for_dir.get(tag, 0)
                     frequency_for_dir[tag] = frequency + 1
@@ -525,10 +522,7 @@ class BaseDataset(torch.utils.data.Dataset):
             for str_from, str_to in self.replacements.items():
                 if str_from == "":
                     # replace all
-                    if type(str_to) == list:
-                        caption = random.choice(str_to)
-                    else:
-                        caption = str_to
+                    caption = random.choice(str_to) if type(str_to) == list else str_to
                 else:
                     caption = caption.replace(str_from, str_to)
 
@@ -542,26 +536,17 @@ class BaseDataset(torch.utils.data.Dataset):
         if self.tokenizer_max_length > self.tokenizer.model_max_length:
             input_ids = input_ids.squeeze(0)
             iids_list = []
-            if self.tokenizer.pad_token_id == self.tokenizer.eos_token_id:
-                # v1
-                # 77以上の時は "<BOS> .... <EOS> <EOS> <EOS>" でトータル227とかになっているので、"<BOS>...<EOS>"の三連に変換する
-                # 1111氏のやつは , で区切る、とかしているようだが　とりあえず単純に
-                for i in range(
+            for i in range(
                     1, self.tokenizer_max_length - self.tokenizer.model_max_length + 2, self.tokenizer.model_max_length - 2
-                ):  # (1, 152, 75)
+                ):
+                if self.tokenizer.pad_token_id == self.tokenizer.eos_token_id:
                     ids_chunk = (
                         input_ids[0].unsqueeze(0),
                         input_ids[i : i + self.tokenizer.model_max_length - 2],
                         input_ids[-1].unsqueeze(0),
                     )
                     ids_chunk = torch.cat(ids_chunk)
-                    iids_list.append(ids_chunk)
-            else:
-                # v2
-                # 77以上の時は "<BOS> .... <EOS> <PAD> <PAD>..." でトータル227とかになっているので、"<BOS>...<EOS> <PAD> <PAD> ..."の三連に変換する
-                for i in range(
-                    1, self.tokenizer_max_length - self.tokenizer.model_max_length + 2, self.tokenizer.model_max_length - 2
-                ):
+                else:
                     ids_chunk = (
                         input_ids[0].unsqueeze(0),  # BOS
                         input_ids[i : i + self.tokenizer.model_max_length - 2],
@@ -571,14 +556,16 @@ class BaseDataset(torch.utils.data.Dataset):
 
                     # 末尾が <EOS> <PAD> または <PAD> <PAD> の場合は、何もしなくてよい
                     # 末尾が x <PAD/EOS> の場合は末尾を <EOS> に変える（x <EOS> なら結果的に変化なし）
-                    if ids_chunk[-2] != self.tokenizer.eos_token_id and ids_chunk[-2] != self.tokenizer.pad_token_id:
+                    if ids_chunk[-2] not in [
+                        self.tokenizer.eos_token_id,
+                        self.tokenizer.pad_token_id,
+                    ]:
                         ids_chunk[-1] = self.tokenizer.eos_token_id
                     # 先頭が <BOS> <PAD> ... の場合は <BOS> <EOS> <PAD> ... に変える
                     if ids_chunk[1] == self.tokenizer.pad_token_id:
                         ids_chunk[1] = self.tokenizer.eos_token_id
 
-                    iids_list.append(ids_chunk)
-
+                iids_list.append(ids_chunk)
             input_ids = torch.stack(iids_list)  # 3,77
         return input_ids
 
@@ -690,19 +677,18 @@ class BaseDataset(torch.utils.data.Dataset):
 
     def load_image(self, image_path):
         image = Image.open(image_path)
-        if not image.mode == "RGB":
+        if image.mode != "RGB":
             image = image.convert("RGB")
-        img = np.array(image, np.uint8)
-        return img
+        return np.array(image, np.uint8)
 
     def trim_and_resize_if_required(self, subset: BaseSubset, image, reso, resized_size):
-        image_height, image_width = image.shape[0:2]
+        image_height, image_width = image.shape[:2]
 
         if image_width != resized_size[0] or image_height != resized_size[1]:
             # リサイズする
             image = cv2.resize(image, resized_size, interpolation=cv2.INTER_AREA)  # INTER_AREAでやりたいのでcv2でリサイズ
 
-        image_height, image_width = image.shape[0:2]
+        image_height, image_width = image.shape[:2]
         if image_width > reso[0]:
             trim_size = image_width - reso[0]
             p = trim_size // 2 if not subset.random_crop else random.randint(0, trim_size)
@@ -720,7 +706,10 @@ class BaseDataset(torch.utils.data.Dataset):
         return image
 
     def is_latent_cacheable(self):
-        return all([not subset.color_aug and not subset.random_crop for subset in self.subsets])
+        return all(
+            not subset.color_aug and not subset.random_crop
+            for subset in self.subsets
+        )
 
     def cache_latents(self, vae, vae_batch_size=1):
         # ちょっと速くした
@@ -802,7 +791,7 @@ class BaseDataset(torch.utils.data.Dataset):
 
     # いい感じに切り出す
     def crop_target(self, subset: BaseSubset, image, face_cx, face_cy, face_w, face_h):
-        height, width = image.shape[0:2]
+        height, width = image.shape[:2]
         if height == self.height and width == self.width:
             return image
 
@@ -832,11 +821,9 @@ class BaseDataset(torch.utils.data.Dataset):
                 # 背景も含めるために顔を中心に置く確率を高めつつずらす
                 range = max(length - face_p, face_p)  # 画像の端から顔中心までの距離の長いほう
                 p1 = p1 + (random.randint(0, range) + random.randint(0, range)) - range  # -range ~ +range までのいい感じの乱数
-            else:
-                # range指定があるときのみ、すこしだけランダムに（わりと適当）
-                if subset.face_crop_aug_range[0] != subset.face_crop_aug_range[1]:
-                    if face_size > self.size // 10 and face_size >= 40:
-                        p1 = p1 + random.randint(-face_size // 20, +face_size // 20)
+            elif subset.face_crop_aug_range[0] != subset.face_crop_aug_range[1]:
+                if face_size > self.size // 10 and face_size >= 40:
+                    p1 = p1 + random.randint(-face_size // 20, +face_size // 20)
 
             p1 = max(0, min(p1, length - target_size))
 
@@ -849,9 +836,7 @@ class BaseDataset(torch.utils.data.Dataset):
 
     def load_latents_from_npz(self, image_info: ImageInfo, flipped):
         npz_file = image_info.latents_npz_flipped if flipped else image_info.latents_npz
-        if npz_file is None:
-            return None
-        return np.load(npz_file)["arr_0"]
+        return None if npz_file is None else np.load(npz_file)["arr_0"]
 
     def __len__(self):
         return self._length
@@ -883,7 +868,7 @@ class BaseDataset(torch.utils.data.Dataset):
             else:
                 # 画像を読み込み、必要ならcropする
                 img, face_cx, face_cy, face_w, face_h = self.load_image_with_face_info(subset, image_info.absolute_path)
-                im_h, im_w = img.shape[0:2]
+                im_h, im_w = img.shape[:2]
 
                 if self.enable_bucket:
                     img = self.trim_and_resize_if_required(subset, img, image_info.bucket_reso, image_info.resized_size)
@@ -901,7 +886,7 @@ class BaseDataset(torch.utils.data.Dataset):
                             p = random.randint(0, im_w - self.width)
                             img = img[:, p : p + self.width]
 
-                    im_h, im_w = img.shape[0:2]
+                    im_h, im_w = img.shape[:2]
                     assert (
                         im_h == self.height and im_w == self.width
                     ), f"image size is small / 画像サイズが小さいようです: {image_info.absolute_path}"
@@ -935,9 +920,7 @@ class BaseDataset(torch.utils.data.Dataset):
                     token_caption = self.get_input_ids(caption)
                 input_ids_list.append(token_caption)
 
-        example = {}
-        example["loss_weights"] = torch.FloatTensor(loss_weights)
-
+        example = {"loss_weights": torch.FloatTensor(loss_weights)}
         if self.token_padding_disabled:
             # padding=True means pad in the batch
             example["input_ids"] = self.tokenizer(captions, padding=True, truncation=True, return_tensors="pt").input_ids
@@ -978,7 +961,9 @@ class DreamBoothDataset(BaseDataset):
     ) -> None:
         super().__init__(tokenizer, max_token_length, resolution, debug_dataset)
 
-        assert resolution is not None, f"resolution is required / resolution（解像度）指定は必須です"
+        assert (
+            resolution is not None
+        ), "resolution is required / resolution（解像度）指定は必須です"
 
         self.batch_size = batch_size
         self.size = min(self.width, self.height)  # 短いほう
@@ -989,10 +974,10 @@ class DreamBoothDataset(BaseDataset):
         if self.enable_bucket:
             assert (
                 min(resolution) >= min_bucket_reso
-            ), f"min_bucket_reso must be equal or less than resolution / min_bucket_resoは最小解像度より大きくできません。解像度を大きくするかmin_bucket_resoを小さくしてください"
+            ), "min_bucket_reso must be equal or less than resolution / min_bucket_resoは最小解像度より大きくできません。解像度を大きくするかmin_bucket_resoを小さくしてください"
             assert (
                 max(resolution) <= max_bucket_reso
-            ), f"max_bucket_reso must be equal or greater than resolution / max_bucket_resoは最大解像度より小さくできません。解像度を小さくするかmin_bucket_resoを大きくしてください"
+            ), "max_bucket_reso must be equal or greater than resolution / max_bucket_resoは最大解像度より小さくできません。解像度を小さくするかmin_bucket_resoを大きくしてください"
             self.min_bucket_reso = min_bucket_reso
             self.max_bucket_reso = max_bucket_reso
             self.bucket_reso_steps = bucket_reso_steps

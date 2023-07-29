@@ -132,7 +132,7 @@ def parse_prompt_attention(text):
     for pos in square_brackets:
         multiply_range(pos, square_bracket_multiplier)
 
-    if len(res) == 0:
+    if not res:
         res = [["", 1.0]]
 
     # merge runs of identical weights
@@ -221,51 +221,50 @@ def get_unweighted_text_embeddings(
     it should be split into chunks and sent to the text encoder individually.
     """
     max_embeddings_multiples = (text_input.shape[1] - 2) // (chunk_length - 2)
-    if max_embeddings_multiples > 1:
-        text_embeddings = []
-        for i in range(max_embeddings_multiples):
-            # extract the i-th chunk
-            text_input_chunk = text_input[:, i * (chunk_length - 2) : (i + 1) * (chunk_length - 2) + 2].clone()
+    if max_embeddings_multiples <= 1:
+        return pipe.text_encoder(text_input)[0]
+    text_embeddings = []
+    for i in range(max_embeddings_multiples):
+        # extract the i-th chunk
+        text_input_chunk = text_input[:, i * (chunk_length - 2) : (i + 1) * (chunk_length - 2) + 2].clone()
 
-            # cover the head and the tail by the starting and the ending tokens
-            text_input_chunk[:, 0] = text_input[0, 0]
-            if pad == eos:  # v1
-                text_input_chunk[:, -1] = text_input[0, -1]
-            else:  # v2
-                for j in range(len(text_input_chunk)):
-                    if text_input_chunk[j, -1] != eos and text_input_chunk[j, -1] != pad:  # 最後に普通の文字がある
-                        text_input_chunk[j, -1] = eos
-                    if text_input_chunk[j, 1] == pad:  # BOSだけであとはPAD
-                        text_input_chunk[j, 1] = eos
-
-            if clip_skip is None or clip_skip == 1:
-                text_embedding = pipe.text_encoder(text_input_chunk)[0]
-            else:
-                enc_out = pipe.text_encoder(text_input_chunk, output_hidden_states=True, return_dict=True)
-                text_embedding = enc_out["hidden_states"][-clip_skip]
-                text_embedding = pipe.text_encoder.text_model.final_layer_norm(text_embedding)
-
-            # cover the head and the tail by the starting and the ending tokens
-            text_input_chunk[:, 0] = text_input[0, 0]
+        # cover the head and the tail by the starting and the ending tokens
+        text_input_chunk[:, 0] = text_input[0, 0]
+        if pad == eos:  # v1
             text_input_chunk[:, -1] = text_input[0, -1]
-            text_embedding = pipe.text_encoder(text_input_chunk, attention_mask=None)[0]
+        else:  # v2
+            for j in range(len(text_input_chunk)):
+                if text_input_chunk[j, -1] not in [eos, pad]:  # 最後に普通の文字がある
+                    text_input_chunk[j, -1] = eos
+                if text_input_chunk[j, 1] == pad:  # BOSだけであとはPAD
+                    text_input_chunk[j, 1] = eos
 
+        if clip_skip is None or clip_skip == 1:
+            text_embedding = pipe.text_encoder(text_input_chunk)[0]
+        else:
+            enc_out = pipe.text_encoder(text_input_chunk, output_hidden_states=True, return_dict=True)
+            text_embedding = enc_out["hidden_states"][-clip_skip]
+            text_embedding = pipe.text_encoder.text_model.final_layer_norm(text_embedding)
+
+        # cover the head and the tail by the starting and the ending tokens
+        text_input_chunk[:, 0] = text_input[0, 0]
+        text_input_chunk[:, -1] = text_input[0, -1]
+        text_embedding = pipe.text_encoder(text_input_chunk, attention_mask=None)[0]
+
+        if i == 0:
             if no_boseos_middle:
-                if i == 0:
-                    # discard the ending token
-                    text_embedding = text_embedding[:, :-1]
-                elif i == max_embeddings_multiples - 1:
-                    # discard the starting token
-                    text_embedding = text_embedding[:, 1:]
-                else:
-                    # discard both starting and ending tokens
-                    text_embedding = text_embedding[:, 1:-1]
+                # discard the ending token
+                text_embedding = text_embedding[:, :-1]
+        elif i == max_embeddings_multiples - 1:
+            if no_boseos_middle:
+                # discard the starting token
+                text_embedding = text_embedding[:, 1:]
+        elif no_boseos_middle:
+            # discard both starting and ending tokens
+            text_embedding = text_embedding[:, 1:-1]
 
-            text_embeddings.append(text_embedding)
-        text_embeddings = torch.concat(text_embeddings, axis=1)
-    else:
-        text_embeddings = pipe.text_encoder(text_input)[0]
-    return text_embeddings
+        text_embeddings.append(text_embedding)
+    return torch.concat(text_embeddings, axis=1)
 
 
 def get_weighted_text_embeddings(
@@ -325,9 +324,9 @@ def get_weighted_text_embeddings(
             uncond_weights = [[1.0] * len(token) for token in uncond_tokens]
 
     # round up the longest length of tokens to a multiple of (model_max_length - 2)
-    max_length = max([len(token) for token in prompt_tokens])
+    max_length = max(len(token) for token in prompt_tokens)
     if uncond_prompt is not None:
-        max_length = max(max_length, max([len(token) for token in uncond_tokens]))
+        max_length = max(max_length, max(len(token) for token in uncond_tokens))
 
     max_embeddings_multiples = min(
         max_embeddings_multiples,
@@ -422,8 +421,7 @@ def preprocess_mask(mask, scale_factor=8):
     mask = np.tile(mask, (4, 1, 1))
     mask = mask[None].transpose(0, 1, 2, 3)  # what does this step do?
     mask = 1 - mask  # repaint white, keep black
-    mask = torch.from_numpy(mask)
-    return mask
+    return torch.from_numpy(mask)
 
 
 class StableDiffusionLongPromptWeightingPipeline(StableDiffusionPipeline):
@@ -517,14 +515,18 @@ class StableDiffusionLongPromptWeightingPipeline(StableDiffusionPipeline):
         """
         if self.device != torch.device("meta") or not hasattr(self.unet, "_hf_hook"):
             return self.device
-        for module in self.unet.modules():
-            if (
-                hasattr(module, "_hf_hook")
-                and hasattr(module._hf_hook, "execution_device")
-                and module._hf_hook.execution_device is not None
-            ):
-                return torch.device(module._hf_hook.execution_device)
-        return self.device
+        return next(
+            (
+                torch.device(module._hf_hook.execution_device)
+                for module in self.unet.modules()
+                if (
+                    hasattr(module, "_hf_hook")
+                    and hasattr(module._hf_hook, "execution_device")
+                    and module._hf_hook.execution_device is not None
+                )
+            ),
+            self.device,
+        )
 
     def _encode_prompt(
         self,
@@ -596,8 +598,10 @@ class StableDiffusionLongPromptWeightingPipeline(StableDiffusionPipeline):
             print(height, width)
             raise ValueError(f"`height` and `width` have to be divisible by 8 but are {height} and {width}.")
 
-        if (callback_steps is None) or (
-            callback_steps is not None and (not isinstance(callback_steps, int) or callback_steps <= 0)
+        if (
+            callback_steps is None
+            or not isinstance(callback_steps, int)
+            or callback_steps <= 0
         ):
             raise ValueError(
                 f"`callback_steps` has to be a positive integer but is {callback_steps} of type" f" {type(callback_steps)}."
@@ -606,15 +610,14 @@ class StableDiffusionLongPromptWeightingPipeline(StableDiffusionPipeline):
     def get_timesteps(self, num_inference_steps, strength, device, is_text2img):
         if is_text2img:
             return self.scheduler.timesteps.to(device), num_inference_steps
-        else:
-            # get the original timestep using init_timestep
-            offset = self.scheduler.config.get("steps_offset", 0)
-            init_timestep = int(num_inference_steps * strength) + offset
-            init_timestep = min(init_timestep, num_inference_steps)
+        # get the original timestep using init_timestep
+        offset = self.scheduler.config.get("steps_offset", 0)
+        init_timestep = int(num_inference_steps * strength) + offset
+        init_timestep = min(init_timestep, num_inference_steps)
 
-            t_start = max(num_inference_steps - init_timestep + offset, 0)
-            timesteps = self.scheduler.timesteps[t_start:].to(device)
-            return timesteps, num_inference_steps - t_start
+        t_start = max(num_inference_steps - init_timestep + offset, 0)
+        timesteps = self.scheduler.timesteps[t_start:].to(device)
+        return timesteps, num_inference_steps - t_start
 
     def run_safety_checker(self, image, device, dtype):
         if self.safety_checker is not None:
@@ -664,11 +667,11 @@ class StableDiffusionLongPromptWeightingPipeline(StableDiffusionPipeline):
                     latents = torch.randn(shape, generator=generator, device="cpu", dtype=dtype).to(device)
                 else:
                     latents = torch.randn(shape, generator=generator, device=device, dtype=dtype)
-            else:
-                if latents.shape != shape:
-                    raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
+            elif latents.shape == shape:
                 latents = latents.to(device)
 
+            else:
+                raise ValueError(f"Unexpected latents shape, got {latents.shape}, expected {shape}")
             # scale the initial noise by the standard deviation required by the scheduler
             latents = latents * self.scheduler.init_noise_sigma
             return latents, None, None

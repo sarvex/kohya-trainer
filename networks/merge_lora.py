@@ -49,8 +49,8 @@ def merge_to_sd_model(text_encoder, unet, models, ratios, merge_dtype):
         for name, module in root_module.named_modules():
             if module.__class__.__name__ in target_replace_modules:
                 for child_name, child_module in module.named_modules():
-                    if child_module.__class__.__name__ == "Linear" or child_module.__class__.__name__ == "Conv2d":
-                        lora_name = prefix + "." + name + "." + child_name
+                    if child_module.__class__.__name__ in ["Linear", "Conv2d"]:
+                        lora_name = f"{prefix}.{name}.{child_name}"
                         lora_name = lora_name.replace(".", "_")
                         name_to_module[lora_name] = child_module
 
@@ -58,7 +58,7 @@ def merge_to_sd_model(text_encoder, unet, models, ratios, merge_dtype):
         print(f"loading: {model}")
         lora_sd = load_state_dict(model, merge_dtype)
 
-        print(f"merging...")
+        print("merging...")
         for key in lora_sd.keys():
             if "lora_down" in key:
                 up_key = key.replace("lora_down", "lora_up")
@@ -128,7 +128,7 @@ def merge_lora_models(models, ratios, merge_dtype):
                 if lora_module_name not in base_dims:
                     base_dims[lora_module_name] = dim
 
-        for lora_module_name in dims.keys():
+        for lora_module_name in dims:
             if lora_module_name not in alphas:
                 alpha = dims[lora_module_name]
                 alphas[lora_module_name] = alpha
@@ -138,7 +138,7 @@ def merge_lora_models(models, ratios, merge_dtype):
         print(f"dim: {list(set(dims.values()))}, alpha: {list(set(alphas.values()))}")
 
         # merge
-        print(f"merging...")
+        print("merging...")
         for key in lora_sd.keys():
             if "alpha" in key:
                 continue
@@ -153,14 +153,14 @@ def merge_lora_models(models, ratios, merge_dtype):
             if key in merged_sd:
                 assert (
                     merged_sd[key].size() == lora_sd[key].size()
-                ), f"weights shape mismatch merging v1 and v2, different dims? / 重みのサイズが合いません。v1とv2、または次元数の異なるモデルはマージできません"
+                ), "weights shape mismatch merging v1 and v2, different dims? / 重みのサイズが合いません。v1とv2、または次元数の異なるモデルはマージできません"
                 merged_sd[key] = merged_sd[key] + lora_sd[key] * scale
             else:
                 merged_sd[key] = lora_sd[key] * scale
 
     # set alpha to sd
     for lora_module_name, alpha in base_alphas.items():
-        key = lora_module_name + ".alpha"
+        key = f"{lora_module_name}.alpha"
         merged_sd[key] = torch.tensor(alpha)
 
     print("merged model")
@@ -170,16 +170,16 @@ def merge_lora_models(models, ratios, merge_dtype):
 
 
 def merge(args):
-    assert len(args.models) == len(args.ratios), f"number of models must be equal to number of ratios / モデルの数と重みの数は合わせてください"
+    assert len(args.models) == len(
+        args.ratios
+    ), "number of models must be equal to number of ratios / モデルの数と重みの数は合わせてください"
 
     def str_to_dtype(p):
         if p == "float":
             return torch.float
         if p == "fp16":
             return torch.float16
-        if p == "bf16":
-            return torch.bfloat16
-        return None
+        return torch.bfloat16 if p == "bf16" else None
 
     merge_dtype = str_to_dtype(args.precision)
     save_dtype = str_to_dtype(args.save_precision)

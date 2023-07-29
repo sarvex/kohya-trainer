@@ -103,7 +103,7 @@ class BertSelfAttention(nn.Module):
                 "The hidden size (%d) is not a multiple of the number of attention "
                 "heads (%d)" % (config.hidden_size, config.num_attention_heads)
             )
-        
+
         self.num_attention_heads = config.num_attention_heads
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
@@ -118,7 +118,7 @@ class BertSelfAttention(nn.Module):
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
         self.position_embedding_type = getattr(config, "position_embedding_type", "absolute")
-        if self.position_embedding_type == "relative_key" or self.position_embedding_type == "relative_key_query":
+        if self.position_embedding_type in ["relative_key", "relative_key_query"]:
             self.max_position_embeddings = config.max_position_embeddings
             self.distance_embedding = nn.Embedding(2 * config.max_position_embeddings - 1, self.attention_head_size)
         self.save_attention = False   
@@ -177,7 +177,7 @@ class BertSelfAttention(nn.Module):
         # Take the dot product between "query" and "key" to get the raw attention scores.
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
-        if self.position_embedding_type == "relative_key" or self.position_embedding_type == "relative_key_query":
+        if self.position_embedding_type in ["relative_key", "relative_key_query"]:
             seq_length = hidden_states.size()[1]
             position_ids_l = torch.arange(seq_length, dtype=torch.long, device=hidden_states.device).view(-1, 1)
             position_ids_r = torch.arange(seq_length, dtype=torch.long, device=hidden_states.device).view(1, -1)
@@ -200,7 +200,7 @@ class BertSelfAttention(nn.Module):
 
         # Normalize the attention scores to probabilities.
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
-        
+
         if is_cross_attention and self.save_attention:
             self.save_attention_map(attention_probs)
             attention_probs.register_hook(self.save_attn_gradients)         
@@ -284,8 +284,7 @@ class BertAttention(nn.Module):
             output_attentions,
         )
         attention_output = self.output(self_outputs[0], hidden_states)
-        outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
-        return outputs
+        return (attention_output,) + self_outputs[1:]
 
 
 class BertIntermediate(nn.Module):
@@ -379,8 +378,7 @@ class BertLayer(nn.Module):
 
     def feed_forward_chunk(self, attention_output):
         intermediate_output = self.intermediate(attention_output)
-        layer_output = self.output(intermediate_output, attention_output)
-        return layer_output
+        return self.output(intermediate_output, attention_output)
 
 
 class BertEncoder(nn.Module):
@@ -541,8 +539,7 @@ class BertOnlyMLMHead(nn.Module):
         self.predictions = BertLMPredictionHead(config)
 
     def forward(self, sequence_output):
-        prediction_scores = self.predictions(sequence_output)
-        return prediction_scores
+        return self.predictions(sequence_output)
 
 
 class BertPreTrainedModel(PreTrainedModel):
@@ -637,7 +634,7 @@ class BertModel(BertPreTrainedModel):
                 # in case past_key_values are used we need to add a prefix ones mask to the causal mask
                 # causal and attention masks must have same type with pytorch version < 1.3
                 causal_mask = causal_mask.to(attention_mask.dtype)
-   
+
                 if causal_mask.shape[1] < attention_mask.shape[1]:
                     prefix_seq_len = attention_mask.shape[1] - causal_mask.shape[1]
                     causal_mask = torch.cat(
@@ -653,9 +650,7 @@ class BertModel(BertPreTrainedModel):
                 extended_attention_mask = attention_mask[:, None, None, :]
         else:
             raise ValueError(
-                "Wrong shape for input_ids (shape {}) or attention_mask (shape {})".format(
-                    input_shape, attention_mask.shape
-                )
+                f"Wrong shape for input_ids (shape {input_shape}) or attention_mask (shape {attention_mask.shape})"
             )
 
         # Since attention_mask is 1.0 for positions we want to attend and 0.0 for

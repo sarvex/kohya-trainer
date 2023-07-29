@@ -61,16 +61,14 @@ def clean_tags(image_key, tags):
   tags = tags.replace('^@@@^', '^_^')
 
   tokens = tags.split(", rating")
-  if len(tokens) == 1:
-    pass
-  else:
+  if len(tokens) != 1:
     if len(tokens) > 2:
       print("multiple ratings:")
       print(f"{image_key} {tags}")
     tags = tokens[0]
 
   tags = ", " + tags.replace(", ", ", , ") + ", "
-  
+
   if 'girls' in tags or 'boys' in tags:
     for pat in PATTERNS_REMOVE_IN_MULTI:
       found = pat.findall(tags)

@@ -66,9 +66,7 @@ def index_sv_ratio(S, target):
   max_sv = S[0]
   min_sv = max_sv/target
   index = int(torch.sum(S > min_sv).item())
-  index = max(1, min(index, len(S)-1))
-
-  return index
+  return max(1, min(index, len(S)-1))
 
 
 # Modified from Kohaku-blueleaf's extract/merge functions
@@ -139,51 +137,43 @@ def merge_linear(lora_down, lora_up, device):
 # Calculate new rank
 
 def rank_resize(S, rank, dynamic_method, dynamic_param, scale=1):
-    param_dict = {}
+  if dynamic_method=="sv_ratio":
+    # Calculate new dim and alpha based off ratio
+    new_rank = index_sv_ratio(S, dynamic_param) + 1
+  elif dynamic_method=="sv_cumulative":
+    # Calculate new dim and alpha based off cumulative sum
+    new_rank = index_sv_cumulative(S, dynamic_param) + 1
+  elif dynamic_method=="sv_fro":
+    # Calculate new dim and alpha based off sqrt sum of squares
+    new_rank = index_sv_fro(S, dynamic_param) + 1
+  else:
+    new_rank = rank
+  new_alpha = float(scale*new_rank)
 
-    if dynamic_method=="sv_ratio":
-        # Calculate new dim and alpha based off ratio
-        new_rank = index_sv_ratio(S, dynamic_param) + 1
-        new_alpha = float(scale*new_rank)
-
-    elif dynamic_method=="sv_cumulative":
-        # Calculate new dim and alpha based off cumulative sum
-        new_rank = index_sv_cumulative(S, dynamic_param) + 1
-        new_alpha = float(scale*new_rank)
-
-    elif dynamic_method=="sv_fro":
-        # Calculate new dim and alpha based off sqrt sum of squares
-        new_rank = index_sv_fro(S, dynamic_param) + 1
-        new_alpha = float(scale*new_rank)
-    else:
-        new_rank = rank
-        new_alpha = float(scale*new_rank)
-
-    
-    if S[0] <= MIN_SV: # Zero matrix, set dim to 1
-        new_rank = 1
-        new_alpha = float(scale*new_rank)
-    elif new_rank > rank: # cap max rank at rank
-        new_rank = rank
-        new_alpha = float(scale*new_rank)
+  if S[0] <= MIN_SV: # Zero matrix, set dim to 1
+      new_rank = 1
+      new_alpha = float(scale*new_rank)
+  elif new_rank > rank: # cap max rank at rank
+      new_rank = rank
+      new_alpha = float(scale*new_rank)
 
 
-    # Calculate resize info
-    s_sum = torch.sum(torch.abs(S))
-    s_rank = torch.sum(torch.abs(S[:new_rank]))
-    
-    S_squared = S.pow(2)
-    s_fro = torch.sqrt(torch.sum(S_squared))
-    s_red_fro = torch.sqrt(torch.sum(S_squared[:new_rank]))
-    fro_percent = float(s_red_fro/s_fro)
+  # Calculate resize info
+  s_sum = torch.sum(torch.abs(S))
+  s_rank = torch.sum(torch.abs(S[:new_rank]))
 
-    param_dict["new_rank"] = new_rank
-    param_dict["new_alpha"] = new_alpha
-    param_dict["sum_retained"] = (s_rank)/s_sum
-    param_dict["fro_retained"] = fro_percent
-    param_dict["max_ratio"] = S[0]/S[new_rank - 1]
+  S_squared = S.pow(2)
+  s_fro = torch.sqrt(torch.sum(S_squared))
+  s_red_fro = torch.sqrt(torch.sum(S_squared[:new_rank]))
+  fro_percent = float(s_red_fro/s_fro)
 
-    return param_dict
+  return {
+      "new_rank": new_rank,
+      "new_alpha": new_alpha,
+      "sum_retained": s_rank / s_sum,
+      "fro_retained": fro_percent,
+      "max_ratio": S[0] / S[new_rank - 1],
+  }
 
 
 def resize_lora_model(lora_sd, new_rank, save_dtype, device, dynamic_method, dynamic_param, verbose):
@@ -218,28 +208,21 @@ def resize_lora_model(lora_sd, new_rank, save_dtype, device, dynamic_method, dyn
   with torch.no_grad():
     for key, value in tqdm(lora_sd.items()):
       weight_name = None
-      if 'lora_down' in key:
-        block_down_name = key.split(".")[0]
-        weight_name = key.split(".")[-1]
-        lora_down_weight = value
-      else:
+      if 'lora_down' not in key:
         continue
 
+      block_down_name = key.split(".")[0]
+      weight_name = key.split(".")[-1]
+      lora_down_weight = value
       # find corresponding lora_up and alpha
       block_up_name = block_down_name
-      lora_up_weight = lora_sd.get(block_up_name + '.lora_up.' + weight_name, None)
-      lora_alpha = lora_sd.get(block_down_name + '.alpha', None)
+      lora_up_weight = lora_sd.get(f'{block_up_name}.lora_up.{weight_name}', None)
+      lora_alpha = lora_sd.get(f'{block_down_name}.alpha', None)
 
-      weights_loaded = (lora_down_weight is not None and lora_up_weight is not None)
-
-      if weights_loaded:
-
+      if weights_loaded := (lora_down_weight is not None
+                            and lora_up_weight is not None):
         conv2d = (len(lora_down_weight.size()) == 4)
-        if lora_alpha is None:
-          scale = 1.0
-        else:
-          scale = lora_alpha/lora_down_weight.size()[0]
-
+        scale = 1.0 if lora_alpha is None else lora_alpha/lora_down_weight.size()[0]
         if conv2d:
           full_weight_matrix = merge_conv(lora_down_weight, lora_up_weight, device)
           param_dict = extract_conv(full_weight_matrix, new_rank, dynamic_method, dynamic_param, device, scale)
@@ -263,9 +246,12 @@ def resize_lora_model(lora_sd, new_rank, save_dtype, device, dynamic_method, dyn
           verbose_str+=f"\n"
 
         new_alpha = param_dict['new_alpha']
-        o_lora_sd[block_down_name + "." + "lora_down.weight"] = param_dict["lora_down"].to(save_dtype).contiguous()
-        o_lora_sd[block_up_name + "." + "lora_up.weight"] = param_dict["lora_up"].to(save_dtype).contiguous()
-        o_lora_sd[block_up_name + "." "alpha"] = torch.tensor(param_dict['new_alpha']).to(save_dtype)
+        o_lora_sd[f"{block_down_name}.lora_down.weight"] = (
+            param_dict["lora_down"].to(save_dtype).contiguous())
+        o_lora_sd[f"{block_up_name}.lora_up.weight"] = (
+            param_dict["lora_up"].to(save_dtype).contiguous())
+        o_lora_sd[f"{block_up_name}.alpha"] = torch.tensor(
+            param_dict['new_alpha']).to(save_dtype)
 
         block_down_name = None
         block_up_name = None
@@ -289,9 +275,7 @@ def resize(args):
       return torch.float
     if p == 'fp16':
       return torch.float16
-    if p == 'bf16':
-      return torch.bfloat16
-    return None
+    return torch.bfloat16 if p == 'bf16' else None
 
   if args.dynamic_method and not args.dynamic_param:
     raise Exception("If using dynamic_method, then dynamic_param is required")

@@ -229,11 +229,9 @@ class ConfigSanitizer:
 
         # check dataset meets FT style
         # NOTE: all FT subsets should have "metadata_file"
-        if all(["metadata_file" in subset for subset in subsets_config]):
+        if all("metadata_file" in subset for subset in subsets_config):
           return Schema(self.ft_dataset_schema)(dataset_config)
-        # check dataset meets DB style
-        # NOTE: all DB subsets should have no "metadata_file"
-        elif all(["metadata_file" not in subset for subset in subsets_config]):
+        elif all("metadata_file" not in subset for subset in subsets_config):
           return Schema(self.db_dataset_schema)(dataset_config)
         else:
           raise voluptuous.Invalid("DreamBooth subset and fine tuning subset cannot be mixed in the same dataset. Please split them into separate datasets. / DreamBoothのサブセットとfine tuninのサブセットを同一のデータセットに混在させることはできません。別々のデータセットに分割してください。")
@@ -317,7 +315,7 @@ class BlueprintGenerator:
     for dataset_config in sanitized_user_config.get("datasets", []):
       # NOTE: if subsets have no "metadata_file", these are DreamBooth datasets/subsets
       subsets = dataset_config.get("subsets", [])
-      is_dreambooth = all(["metadata_file" not in subset for subset in subsets])
+      is_dreambooth = all("metadata_file" not in subset for subset in subsets)
       if is_dreambooth:
         subset_params_klass = DreamBoothSubsetParams
         dataset_params_klass = DreamBoothDatasetParams

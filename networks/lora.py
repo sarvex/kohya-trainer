@@ -137,13 +137,14 @@ class LoRAInfModule(LoRAModule):
     def forward(self, x):
         if self.network is None or self.network.sub_prompt_index is None:
             return self.default_forward(x)
-        if not self.regional and not self.use_sub_prompt:
-            return self.default_forward(x)
-
-        if self.regional:
-            return self.regional_forward(x)
+        if self.regional or self.use_sub_prompt:
+            return (
+                self.regional_forward(x)
+                if self.regional
+                else self.sub_prompt_forward(x)
+            )
         else:
-            return self.sub_prompt_forward(x)
+            return self.default_forward(x)
 
     def get_mask_for_x(self, x):
         # calculate size from shape of x
@@ -296,11 +297,7 @@ def create_network(multiplier, network_dim, network_alpha, vae, text_encoder, un
     conv_alpha = kwargs.get("conv_alpha", None)
     if conv_dim is not None:
         conv_dim = int(conv_dim)
-        if conv_alpha is None:
-            conv_alpha = 1.0
-        else:
-            conv_alpha = float(conv_alpha)
-
+        conv_alpha = 1.0 if conv_alpha is None else float(conv_alpha)
     # block dim/alpha/lr
     block_dims = kwargs.get("block_dims", None)
     down_lr_weight = kwargs.get("down_lr_weight", None)
@@ -542,16 +539,13 @@ def remove_block_dims_and_alphas(
 def get_block_index(lora_name: str) -> int:
     block_idx = -1  # invalid lora name
 
-    m = RE_UPDOWN.search(lora_name)
-    if m:
+    if m := RE_UPDOWN.search(lora_name):
         g = m.groups()
         i = int(g[1])
-        j = int(g[3])
-        if g[2] == "resnets":
+        if g[2] in ["resnets", "attentions"]:
+            j = int(g[3])
             idx = 3 * i + j
-        elif g[2] == "attentions":
-            idx = 3 * i + j
-        elif g[2] == "upsamplers" or g[2] == "downsamplers":
+        elif g[2] in ["upsamplers", "downsamplers"]:
             idx = 3 * i + 2
 
         if g[0] == "down":
@@ -591,7 +585,7 @@ def create_network_from_weights(multiplier, file, vae, text_encoder, unet, weigh
             # print(lora_name, value.size(), dim)
 
     # support old LoRA without alpha
-    for key in modules_dim.keys():
+    for key in modules_dim:
         if key not in modules_alpha:
             modules_alpha = modules_dim[key]
 
@@ -648,9 +642,9 @@ class LoRANetwork(torch.nn.Module):
         self.conv_alpha = conv_alpha
 
         if modules_dim is not None:
-            print(f"create LoRA network from weights")
+            print("create LoRA network from weights")
         elif block_dims is not None:
-            print(f"create LoRA network from block_dims")
+            print("create LoRA network from block_dims")
             print(f"block_dims: {block_dims}")
             print(f"block_alphas: {block_alphas}")
             if conv_block_dims is not None:
@@ -674,7 +668,7 @@ class LoRANetwork(torch.nn.Module):
                         is_conv2d_1x1 = is_conv2d and child_module.kernel_size == (1, 1)
 
                         if is_linear or is_conv2d:
-                            lora_name = prefix + "." + name + "." + child_name
+                            lora_name = f"{prefix}.{name}.{child_name}"
                             lora_name = lora_name.replace(".", "_")
 
                             dim = None
@@ -751,8 +745,7 @@ class LoRANetwork(torch.nn.Module):
         else:
             weights_sd = torch.load(file, map_location="cpu")
 
-        info = self.load_state_dict(weights_sd, False)
-        return info
+        return self.load_state_dict(weights_sd, False)
 
     def apply_to(self, text_encoder, unet, apply_text_encoder=True, apply_unet=True):
         if apply_text_encoder:
@@ -789,13 +782,14 @@ class LoRANetwork(torch.nn.Module):
             self.unet_loras = []
 
         for lora in self.text_encoder_loras + self.unet_loras:
-            sd_for_lora = {}
-            for key in weights_sd.keys():
-                if key.startswith(lora.lora_name):
-                    sd_for_lora[key[len(lora.lora_name) + 1 :]] = weights_sd[key]
+            sd_for_lora = {
+                key[len(lora.lora_name) + 1 :]: weights_sd[key]
+                for key in weights_sd.keys()
+                if key.startswith(lora.lora_name)
+            }
             lora.merge_to(sd_for_lora, dtype, device)
 
-        print(f"weights are merged")
+        print("weights are merged")
 
     # 層別学習率用に層ごとの学習率に対する倍率を定義する
     def set_block_lr_weight(

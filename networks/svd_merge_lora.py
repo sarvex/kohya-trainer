@@ -43,7 +43,7 @@ def merge_lora_models(models, ratios, new_rank, new_conv_rank, device, merge_dty
     lora_sd = load_state_dict(model, merge_dtype)
 
     # merge
-    print(f"merging...")
+    print("merging...")
     for key in tqdm(list(lora_sd.keys())):
       if 'lora_down' not in key:
         continue
@@ -53,8 +53,8 @@ def merge_lora_models(models, ratios, new_rank, new_conv_rank, device, merge_dty
       down_weight = lora_sd[key]
       network_dim = down_weight.size()[0]
 
-      up_weight = lora_sd[lora_module_name + '.lora_up.weight']
-      alpha = lora_sd.get(lora_module_name + '.alpha', network_dim)
+      up_weight = lora_sd[f'{lora_module_name}.lora_up.weight']
+      alpha = lora_sd.get(f'{lora_module_name}.alpha', network_dim)
 
       in_dim = down_weight.size()[1]
       out_dim = up_weight.size()[0]
@@ -100,14 +100,10 @@ def merge_lora_models(models, ratios, new_rank, new_conv_rank, device, merge_dty
       conv2d = (len(mat.size()) == 4)
       kernel_size = None if not conv2d else mat.size()[2:4]
       conv2d_3x3 = conv2d and kernel_size != (1, 1)
-      out_dim, in_dim = mat.size()[0:2]
+      out_dim, in_dim = mat.size()[:2]
 
       if conv2d:
-        if conv2d_3x3:
-          mat = mat.flatten(start_dim=1)
-        else:
-          mat = mat.squeeze()
-
+        mat = mat.flatten(start_dim=1) if conv2d_3x3 else mat.squeeze()
       module_new_rank = new_conv_rank if conv2d_3x3 else new_rank
       module_new_rank = min(module_new_rank, in_dim, out_dim)                           # LoRA rank cannot exceed the original dim
 
@@ -133,24 +129,26 @@ def merge_lora_models(models, ratios, new_rank, new_conv_rank, device, merge_dty
       up_weight = U
       down_weight = Vh
 
-      merged_lora_sd[lora_module_name + '.lora_up.weight'] = up_weight.to("cpu").contiguous()
-      merged_lora_sd[lora_module_name + '.lora_down.weight'] = down_weight.to("cpu").contiguous()
-      merged_lora_sd[lora_module_name + '.alpha'] = torch.tensor(module_new_rank)
+      merged_lora_sd[f'{lora_module_name}.lora_up.weight'] = up_weight.to(
+          "cpu").contiguous()
+      merged_lora_sd[f'{lora_module_name}.lora_down.weight'] = down_weight.to(
+          "cpu").contiguous()
+      merged_lora_sd[f'{lora_module_name}.alpha'] = torch.tensor(module_new_rank)
 
   return merged_lora_sd
 
 
 def merge(args):
-  assert len(args.models) == len(args.ratios), f"number of models must be equal to number of ratios / モデルの数と重みの数は合わせてください"
+  assert len(args.models) == len(
+      args.ratios
+  ), "number of models must be equal to number of ratios / モデルの数と重みの数は合わせてください"
 
   def str_to_dtype(p):
     if p == 'float':
       return torch.float
     if p == 'fp16':
       return torch.float16
-    if p == 'bf16':
-      return torch.bfloat16
-    return None
+    return torch.bfloat16 if p == 'bf16' else None
 
   merge_dtype = str_to_dtype(args.precision)
   save_dtype = str_to_dtype(args.save_precision)

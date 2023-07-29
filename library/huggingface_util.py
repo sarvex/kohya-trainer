@@ -72,7 +72,8 @@ def list_dir(
         token=token,
     )
     repo_info = api.repo_info(repo_id=repo_id, revision=revision, repo_type=repo_type)
-    file_list = [
-        file for file in repo_info.siblings if file.rfilename.startswith(subfolder)
+    return [
+        file
+        for file in repo_info.siblings
+        if file.rfilename.startswith(subfolder)
     ]
-    return file_list

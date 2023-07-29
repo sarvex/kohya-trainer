@@ -33,9 +33,7 @@ def svd(args):
       return torch.float
     if p == 'fp16':
       return torch.float16
-    if p == 'bf16':
-      return torch.bfloat16
-    return None
+    return torch.bfloat16 if p == 'bf16' else None
 
   save_dtype = str_to_dtype(args.save_precision)
 
@@ -53,7 +51,8 @@ def svd(args):
   lora_network_o = lora.create_network(1.0, args.dim, args.dim, None, text_encoder_o, unet_o, **kwargs)
   lora_network_t = lora.create_network(1.0, args.dim, args.dim, None, text_encoder_t, unet_t, **kwargs)
   assert len(lora_network_o.text_encoder_loras) == len(
-      lora_network_t.text_encoder_loras), f"model version is different (SD1.x vs SD2.x) / それぞれのモデルのバージョンが違います（SD1.xベースとSD2.xベース） "
+      lora_network_t.text_encoder_loras
+  ), "model version is different (SD1.x vs SD2.x) / それぞれのモデルのバージョンが違います（SD1.xベースとSD2.xベース） "
 
   # get diffs
   diffs = {}
@@ -99,7 +98,7 @@ def svd(args):
       conv2d_3x3 = conv2d and kernel_size != (1, 1)
 
       rank = args.dim if not conv2d_3x3 or args.conv_dim is None else args.conv_dim
-      out_dim, in_dim = mat.size()[0:2]
+      out_dim, in_dim = mat.size()[:2]
 
       if args.device:
         mat = mat.to(args.device)
@@ -108,11 +107,7 @@ def svd(args):
       rank = min(rank, in_dim, out_dim)                           # LoRA rank cannot exceed the original dim
 
       if conv2d:
-        if conv2d_3x3:
-          mat = mat.flatten(start_dim=1)
-        else:
-          mat = mat.squeeze()
-
+        mat = mat.flatten(start_dim=1) if conv2d_3x3 else mat.squeeze()
       U, S, Vh = torch.linalg.svd(mat)
 
       U = U[:, :rank]
@@ -140,9 +135,9 @@ def svd(args):
   # make state dict for LoRA
   lora_sd = {}
   for lora_name, (up_weight, down_weight) in lora_weights.items():
-    lora_sd[lora_name + '.lora_up.weight'] = up_weight
-    lora_sd[lora_name + '.lora_down.weight'] = down_weight
-    lora_sd[lora_name + '.alpha'] = torch.tensor(down_weight.size()[0])
+    lora_sd[f'{lora_name}.lora_up.weight'] = up_weight
+    lora_sd[f'{lora_name}.lora_down.weight'] = down_weight
+    lora_sd[f'{lora_name}.alpha'] = torch.tensor(down_weight.size()[0])
 
   # load state dict to LoRA and save it
   lora_network_save, lora_sd = lora.create_network_from_weights(1.0, None, None, text_encoder_o, unet_o, weights_sd=lora_sd)

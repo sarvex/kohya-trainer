@@ -31,7 +31,7 @@ def merge(args):
   theta_1 = model_1["state_dict"]
   alpha = args.base_alpha
 
-  output_file = f'{args.output}-{str(alpha)[2:] + "0"}-bw.ckpt'
+  output_file = f'{args.output}-{str(alpha)[2:]}0-bw.ckpt'
 
   # check if output file already exists, ask to overwrite
   if os.path.isfile(output_file):
@@ -63,20 +63,16 @@ def merge(args):
           weight_index = 0                # before input blocks
         elif '.out.' in key:
           weight_index = NUM_TOTAL_BLOCKS - 1     # after output blocks
+        elif m := re_inp.search(key):
+          inp_idx = int(m.groups()[0])
+          weight_index = inp_idx
         else:
-          m = re_inp.search(key)
+          m = re_mid.search(key)
           if m:
-            inp_idx = int(m.groups()[0])
-            weight_index = inp_idx
-          else:
-            m = re_mid.search(key)
-            if m:
-              weight_index = NUM_INPUT_BLOCKS
-            else:
-              m = re_out.search(key)
-              if m:
-                out_idx = int(m.groups()[0])
-                weight_index = NUM_INPUT_BLOCKS + NUM_MID_BLOCK + out_idx
+            weight_index = NUM_INPUT_BLOCKS
+          elif m := re_out.search(key):
+            out_idx = int(m.groups()[0])
+            weight_index = NUM_INPUT_BLOCKS + NUM_MID_BLOCK + out_idx
 
         if weight_index >= NUM_TOTAL_BLOCKS:
           print(f"error. illegal block index: {key}")

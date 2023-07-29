@@ -103,10 +103,7 @@ def get_compute_capability(cuda):
     None.
     """
     ccs = get_compute_capabilities(cuda)
-    if ccs is not None:
-        # TODO: handle different compute capabilities; for now, take the max
-        return ccs[-1]
-    return None
+    return ccs[-1] if ccs is not None else None
 
 
 def evaluate_cuda_setup():
@@ -116,51 +113,3 @@ def evaluate_cuda_setup():
     print('For effortless bug reporting copy-paste your error into this form: https://docs.google.com/forms/d/e/1FAIpQLScPB8emS3Thkp66nvqwmjTEgxp8Y9ufuWTzFyr9kJ5AoI47dQ/viewform?usp=sf_link')
     print('='*80)
     return "libbitsandbytes_cuda116.dll"            # $$$
-    
-    binary_name = "libbitsandbytes_cpu.so"
-    #if not torch.cuda.is_available():
-        #print('No GPU detected. Loading CPU library...')
-        #return binary_name
-
-    cudart_path = determine_cuda_runtime_lib_path()
-    if cudart_path is None:
-        print(
-            "WARNING: No libcudart.so found! Install CUDA or the cudatoolkit package (anaconda)!"
-        )
-        return binary_name
-
-    print(f"CUDA SETUP: CUDA runtime path found: {cudart_path}")
-    cuda = get_cuda_lib_handle()
-    cc = get_compute_capability(cuda)
-    print(f"CUDA SETUP: Highest compute capability among GPUs detected: {cc}")
-    cuda_version_string = get_cuda_version(cuda, cudart_path)
-
-
-    if cc == '':
-        print(
-            "WARNING: No GPU detected! Check your CUDA paths. Processing to load CPU-only library..."
-        )
-        return binary_name
-
-    # 7.5 is the minimum CC vor cublaslt
-    has_cublaslt = cc in ["7.5", "8.0", "8.6"]
-
-    # TODO:
-    # (1) CUDA missing cases (no CUDA installed by CUDA driver (nvidia-smi accessible)
-    # (2) Multiple CUDA versions installed
-
-    # we use ls -l instead of nvcc to determine the cuda version
-    # since most installations will have the libcudart.so installed, but not the compiler
-    print(f'CUDA SETUP: Detected CUDA version {cuda_version_string}')
-
-    def get_binary_name():
-        "if not has_cublaslt (CC < 7.5), then we have to choose  _nocublaslt.so"
-        bin_base_name = "libbitsandbytes_cuda"
-        if has_cublaslt:
-            return f"{bin_base_name}{cuda_version_string}.so"
-        else:
-            return f"{bin_base_name}{cuda_version_string}_nocublaslt.so"
-
-    binary_name = get_binary_name()
-
-    return binary_name

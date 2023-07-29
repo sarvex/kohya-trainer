@@ -63,6 +63,7 @@ def main(args):
     if input_ids.size()[0] != curr_batch_size[0]:
       input_ids = input_ids.repeat(curr_batch_size[0], 1)
     return input_ids
+
   GenerationMixin._prepare_input_ids_for_generation = _prepare_input_ids_for_generation_patch
 
   print(f"load images from {args.train_data_dir}")
@@ -123,7 +124,7 @@ def main(args):
         run_batch(b_imgs)
         b_imgs.clear()
 
-  if len(b_imgs) > 0:
+  if b_imgs:
     run_batch(b_imgs)
 
   print("done!")

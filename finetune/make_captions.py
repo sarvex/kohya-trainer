@@ -129,7 +129,7 @@ def main(args):
       if len(b_imgs) >= args.batch_size:
         run_batch(b_imgs)
         b_imgs.clear()
-  if len(b_imgs) > 0:
+  if b_imgs:
     run_batch(b_imgs)
 
   print("done!")

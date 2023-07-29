@@ -42,10 +42,7 @@ class Hypernetwork(torch.nn.Module):
           for tf_block in subblk.transformer_blocks:
             for attn in [tf_block.attn1, tf_block.attn2]:
               size = attn.context_dim
-              if size in Hypernetwork.enable_sizes:
-                attn.hypernetwork = self
-              else:
-                attn.hypernetwork = None
+              attn.hypernetwork = self if size in Hypernetwork.enable_sizes else None
 
   def apply_to_diffusers(self, text_encoder, vae, unet):
     blocks = unet.down_blocks + [unet.mid_block] + unet.up_blocks
@@ -56,10 +53,7 @@ class Hypernetwork(torch.nn.Module):
             for tf_block in subblk.transformer_blocks:
               for attn in [tf_block.attn1, tf_block.attn2]:
                 size = attn.to_k.in_features
-                if size in Hypernetwork.enable_sizes:
-                  attn.hypernetwork = self
-                else:
-                  attn.hypernetwork = None
+                attn.hypernetwork = self if size in Hypernetwork.enable_sizes else None
     return True       # TODO error checking
 
   def forward(self, x, context):

@@ -106,7 +106,10 @@ def train(args):
         save_stable_diffusion_format = load_stable_diffusion_format
         use_safetensors = args.use_safetensors
     else:
-        save_stable_diffusion_format = args.save_model_as.lower() == "ckpt" or args.save_model_as.lower() == "safetensors"
+        save_stable_diffusion_format = args.save_model_as.lower() in [
+            "ckpt",
+            "safetensors",
+        ]
         use_safetensors = args.use_safetensors or ("safetensors" in args.save_model_as.lower())
 
     # モデルに xformers とか memory efficient attention を組み込む
