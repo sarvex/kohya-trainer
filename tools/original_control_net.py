@@ -27,7 +27,7 @@ class ControlNet(torch.nn.Module):
 
     dims = [320, 320, 320, 320, 640, 640, 640, 1280, 1280, 1280, 1280, 1280]
     zero_convs = torch.nn.ModuleList()
-    for i, dim in enumerate(dims):
+    for dim in dims:
       sub_list = torch.nn.ModuleList([torch.nn.Conv2d(dim, dim, 1)])
       zero_convs.append(sub_list)
     self.control_model.add_module("zero_convs", zero_convs)
@@ -70,7 +70,8 @@ def load_control_net(v2, unet, model):
 
   # 元のU-Netに影響しないようにコピーする。またprefixが付いていないので付ける
   for key in list(ctrl_unet_sd_sd.keys()):
-    ctrl_unet_sd_sd["model.diffusion_model." + key] = ctrl_unet_sd_sd.pop(key).clone()
+    ctrl_unet_sd_sd[f"model.diffusion_model.{key}"] = ctrl_unet_sd_sd.pop(
+        key).clone()
 
   zero_conv_sd = {}
   for key in list(ctrl_sd_sd.keys()):
@@ -277,8 +278,7 @@ def unet_forward(is_control_net, control_net: ControlNet, unet: UNet2DConditionM
     outs.append(control_net.control_model.middle_block_out[0](sample))
     return outs
 
-  if not is_control_net:
-    sample += ctrl_outs.pop()
+  sample += ctrl_outs.pop()
 
   # 5. up
   for i, upsample_block in enumerate(unet.up_blocks):

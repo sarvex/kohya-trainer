@@ -51,7 +51,7 @@ def detect_faces(detector, image, min_size):
 
 
 def rotate_image(image, angle, cx, cy):
-  h, w = image.shape[0:2]
+  h, w = image.shape[:2]
   rot_mat = cv2.getRotationMatrix2D((cx, cy), angle, 1.0)
 
   # # 回転する分、すこし画像サイズを大きくする→とりあえず無効化
@@ -74,8 +74,11 @@ def rotate_image(image, angle, cx, cy):
 
 
 def process(args):
-  assert (not args.resize_fit) or args.resize_face_size is None, f"resize_fit and resize_face_size can't be specified both / resize_fitとresize_face_sizeはどちらか片方しか指定できません"
-  assert args.crop_ratio is None or args.resize_face_size is None, f"crop_ratio指定時はresize_face_sizeは指定できません"
+  assert (
+      not args.resize_fit
+  ) or args.resize_face_size is None, "resize_fit and resize_face_size can't be specified both / resize_fitとresize_face_sizeはどちらか片方しか指定できません"
+  assert (args.crop_ratio is None or args.resize_face_size is None
+          ), "crop_ratio指定時はresize_face_sizeは指定できません"
 
   # アニメ顔検出モデルを読み込む
   print("loading face detector.")
@@ -86,14 +89,17 @@ def process(args):
     crop_width = crop_height = None
   else:
     tokens = args.crop_size.split(',')
-    assert len(tokens) == 2, f"crop_size must be 'width,height' / crop_sizeは'幅,高さ'で指定してください"
+    assert (len(tokens) == 2
+            ), "crop_size must be 'width,height' / crop_sizeは'幅,高さ'で指定してください"
     crop_width, crop_height = [int(t) for t in tokens]
 
   if args.crop_ratio is None:
     crop_h_ratio = crop_v_ratio = None
   else:
     tokens = args.crop_ratio.split(',')
-    assert len(tokens) == 2, f"crop_ratio must be 'horizontal,vertical' / crop_ratioは'幅,高さ'の倍率で指定してください"
+    assert (
+        len(tokens) == 2
+    ), "crop_ratio must be 'horizontal,vertical' / crop_ratioは'幅,高さ'の倍率で指定してください"
     crop_h_ratio, crop_v_ratio = [float(t) for t in tokens]
 
   # 画像を処理する
@@ -151,10 +157,7 @@ def process(args):
             print(
                 f"image height too small in face size based resizing / 顔を基準にリサイズすると画像の高さがcrop sizeより小さい（顔が相対的に大きすぎる）ので顔サイズが変わります: {path}")
             scale = cur_crop_height / h
-        elif crop_h_ratio is not None:
-          # 倍率指定の時にはリサイズしない
-          pass
-        else:
+        elif crop_h_ratio is None:
           # 切り出しサイズ指定あり
           if w < cur_crop_width:
             print(f"image width too small/ 画像の幅がcrop sizeより小さいので画質が劣化します: {path}")

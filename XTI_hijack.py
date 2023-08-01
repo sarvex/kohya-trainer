@@ -124,10 +124,7 @@ def unet_forward_XTI(self,
         sample = self.conv_act(sample)
         sample = self.conv_out(sample)
 
-        if not return_dict:
-            return (sample,)
-
-        return UNet2DConditionOutput(sample=sample)
+        return (sample, ) if not return_dict else UNet2DConditionOutput(sample=sample)
 
 def downblock_forward_XTI(
     self, hidden_states, temb=None, encoder_hidden_states=None, attention_mask=None, cross_attention_kwargs=None

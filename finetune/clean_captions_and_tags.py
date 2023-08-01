@@ -34,19 +34,14 @@ def clean_tags(image_key, tags):
 
   # remove rating: deepdanbooruのみ
   tokens = tags.split(", rating")
-  if len(tokens) == 1:
-    # WD14 taggerのときはこちらになるのでメッセージは出さない
-    # print("no rating:")
-    # print(f"{image_key} {tags}")
-    pass
-  else:
+  if len(tokens) != 1:
     if len(tokens) > 2:
       print("multiple ratings:")
       print(f"{image_key} {tags}")
     tags = tokens[0]
 
   tags = ", " + tags.replace(", ", ", , ") + ", "     # カンマ付きで検索をするための身も蓋もない対策
-  
+
   # 複数の人物がいる場合は髪色等のタグを削除する
   if 'girls' in tags or 'boys' in tags:
     for pat in PATTERNS_REMOVE_IN_MULTI:
@@ -142,8 +137,8 @@ def main(args):
       tags = clean_tags(image_key, tags)
       metadata[image_key]['tags'] = tags
       if args.debug and org != tags:
-        print("FROM: " + org)
-        print("TO:   " + tags)
+        print(f"FROM: {org}")
+        print(f"TO:   {tags}")
 
     caption = metadata[image_key].get('caption')
     if caption is None:
@@ -153,8 +148,8 @@ def main(args):
       caption = clean_caption(caption)
       metadata[image_key]['caption'] = caption
       if args.debug and org != caption:
-        print("FROM: " + org)
-        print("TO:   " + caption)
+        print(f"FROM: {org}")
+        print(f"TO:   {caption}")
 
   # metadataを書き出して終わり
   print(f"writing metadata: {args.out_json}")

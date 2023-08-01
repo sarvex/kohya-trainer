@@ -118,9 +118,8 @@ def merge_vae(ckpt, vae, output):
     if full_model:
       if not sd_key.startswith(VAE_PREFIX):
         continue
-    else:
-      if sd_key not in sd:
-        sd_key = VAE_PREFIX + sd_key
+    elif sd_key not in sd:
+      sd_key = VAE_PREFIX + sd_key
     if sd_key not in sd:
       print(f"key not exists in model: {vae_key}")
       continue

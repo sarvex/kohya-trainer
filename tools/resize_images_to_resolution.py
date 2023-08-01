@@ -20,10 +20,10 @@ def resize_images(src_img_folder, dst_img_folder, max_resolution="512x512", divi
     os.makedirs(dst_img_folder)
 
   # Select interpolation method
-  if interpolation == 'lanczos4':
-    cv2_interpolation = cv2.INTER_LANCZOS4
-  elif interpolation == 'cubic':
+  if interpolation == 'cubic':
     cv2_interpolation = cv2.INTER_CUBIC
+  elif interpolation == 'lanczos4':
+    cv2_interpolation = cv2.INTER_LANCZOS4
   else:
     cv2_interpolation = cv2.INTER_AREA
 
@@ -39,7 +39,7 @@ def resize_images(src_img_folder, dst_img_folder, max_resolution="512x512", divi
     # Load image
     # img = cv2.imread(os.path.join(src_img_folder, filename))
     image = Image.open(os.path.join(src_img_folder, filename))
-    if not image.mode == "RGB":
+    if image.mode != "RGB":
       image = image.convert("RGB")
     img = np.array(image, np.uint8)
 
@@ -63,7 +63,7 @@ def resize_images(src_img_folder, dst_img_folder, max_resolution="512x512", divi
         # Resize image
         img = cv2.resize(img, (new_width, new_height), interpolation=cv2_interpolation)
       else:
-        new_height, new_width = img.shape[0:2]
+        new_height, new_width = img.shape[:2]
 
       # Calculate the new height and width that are divisible by divisible_by (with/without resizing)
       new_height = new_height if new_height % divisible_by == 0 else new_height - new_height % divisible_by
@@ -75,7 +75,7 @@ def resize_images(src_img_folder, dst_img_folder, max_resolution="512x512", divi
       img = img[y:y + new_height, x:x + new_width]
 
       # Split filename into base and extension
-      new_filename = base + '+' + max_resolution + ('.png' if save_as_png else '.jpg')
+      new_filename = f'{base}+{max_resolution}' + ('.png' if save_as_png else '.jpg')
 
       # Save resized image in dst_img_folder
       # cv2.imwrite(os.path.join(dst_img_folder, new_filename), img, [cv2.IMWRITE_JPEG_QUALITY, 100])
@@ -87,13 +87,13 @@ def resize_images(src_img_folder, dst_img_folder, max_resolution="512x512", divi
 
     # If other files with same basename, copy them with resolution suffix
     if copy_associated_files:
-      asoc_files = glob.glob(os.path.join(src_img_folder, base + ".*"))
+      asoc_files = glob.glob(os.path.join(src_img_folder, f"{base}.*"))
       for asoc_file in asoc_files:
         ext = os.path.splitext(asoc_file)[1]
         if ext in img_exts:
           continue
         for max_resolution in max_resolutions:
-          new_asoc_file = base + '+' + max_resolution + ext
+          new_asoc_file = f'{base}+{max_resolution}{ext}'
           print(f"Copy {asoc_file} as {new_asoc_file}")
           shutil.copy(os.path.join(src_img_folder, asoc_file), os.path.join(dst_img_folder, new_asoc_file))
 

@@ -12,7 +12,7 @@ def convert(args):
   # 引数を確認する
   load_dtype = torch.float16 if args.fp16 else None
 
-  save_dtype = None 
+  save_dtype = None
   if args.fp16 or args.save_precision_as == "fp16":
     save_dtype = torch.float16
   elif args.bf16 or args.save_precision_as == "bf16":
@@ -23,8 +23,12 @@ def convert(args):
   is_load_ckpt = os.path.isfile(args.model_to_load)
   is_save_ckpt = len(os.path.splitext(args.model_to_save)[1]) > 0
 
-  assert not is_load_ckpt or args.v1 != args.v2, f"v1 or v2 is required to load checkpoint / checkpointの読み込みにはv1/v2指定が必要です"
-  assert is_save_ckpt or args.reference_model is not None, f"reference model is required to save as Diffusers / Diffusers形式での保存には参照モデルが必要です"
+  assert (
+      not is_load_ckpt or args.v1 != args.v2
+  ), "v1 or v2 is required to load checkpoint / checkpointの読み込みにはv1/v2指定が必要です"
+  assert (
+      is_save_ckpt or args.reference_model is not None
+  ), "reference model is required to save as Diffusers / Diffusers形式での保存には参照モデルが必要です"
 
   # モデルを読み込む
   msg = "checkpoint" if is_load_ckpt else ("Diffusers" + (" as fp16" if args.fp16 else ""))
@@ -58,7 +62,7 @@ def convert(args):
   else:
     print(f"copy scheduler/tokenizer config from: {args.reference_model}")
     model_util.save_diffusers_checkpoint(v2_model, args.model_to_save, text_encoder, unet, args.reference_model, vae, args.use_safetensors)
-    print(f"model saved.")
+    print("model saved.")
 
 
 def setup_parser() -> argparse.ArgumentParser:

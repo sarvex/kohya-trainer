@@ -11,12 +11,9 @@ def main(file):
   else:
     sd = torch.load(file, map_location='cpu')
 
-  values = []
-
   keys = list(sd.keys())
-  for key in keys:
-    if 'lora_up' in key or 'lora_down' in key:
-      values.append((key, sd[key]))
+  values = [(key, sd[key]) for key in keys
+            if 'lora_up' in key or 'lora_down' in key]
   print(f"number of LoRA modules: {len(values)}")
 
   for key, value in values:
